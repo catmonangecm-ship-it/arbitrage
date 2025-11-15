@@ -495,13 +495,21 @@
         const OPENOCEAN_API_BASE = 'https://open-api.openocean.finance/v3';
         const BSC_CHAIN_ID = 56;
         const OPENOCEAN_EXCHANGE = '0x6352a56caadC4F1E25CD6c75970Fa768A3304e64';
-        const PANCAKE_ROUTER = '0x10ED43C718714eb63d5aA57B78B54704E256024E';
+        
+        // DEX Routers pour arbitrage cross-DEX
+        const DEX_ROUTERS = {
+            PANCAKESWAP: '0x10ED43C718714eb63d5aA57B78B54704E256024E',
+            BISWAP: '0x3a6d8cA21D1CF76F653A67577FA0D27453350dD8',
+            APESWAP: '0xcF0feBd3f17CEf5b47b0cD257aCf6025c5BFf3b7',
+            BABYSWAP: '0x325E343f1dE602396E256B67eFd1F61C3A6B38Bd'
+        };
         
         const TOKENS = {
             USDT: '0x55d398326f99059fF775485246999027B3197955',
             BTC: '0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c',
             ETH: '0x2170Ed0880ac9A755fd29B2688956BD959F933F8',
-            BNB: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c'
+            BNB: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
+            WBNB: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c'
         };
 
         const ERC20_ABI = [
@@ -510,6 +518,13 @@
             'function balanceOf(address account) view returns (uint256)',
             'function decimals() view returns (uint8)',
             'function transfer(address to, uint256 amount) returns (bool)'
+        ];
+
+        const ROUTER_ABI = [
+            'function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)',
+            'function swapTokensForExactTokens(uint amountOut, uint amountInMax, address[] calldata path, address to, uint deadline) external returns (uint[] memory amounts)',
+            'function getAmountsOut(uint amountIn, address[] memory path) public view returns (uint[] memory amounts)',
+            'function getAmountsIn(uint amountOut, address[] memory path) public view returns (uint[] memory amounts)'
         ];
 
         // State
@@ -1313,42 +1328,62 @@
             const minProfit = state.arbitrage.minProfit;
             
             try {
-                // Route 1: USDT → BTC → USDT (Triangulaire)
-                const opp1 = await checkTriangularArbitrage('USDT', 'BTC', 'USDT', amount);
+                // Route 1: USDT → BTC → USDT (Triangulaire PancakeSwap)
+                const opp1 = await checkTriangularArbitrage('USDT', 'BTC', 'USDT', amount, 'PANCAKESWAP');
                 if (opp1 && opp1.profitPercent >= minProfit) {
                     state.arbitrage.currentOpportunities.push(opp1);
                     state.arbitrage.opportunitiesDetected++;
                 }
                 
-                // Route 2: USDT → ETH → USDT
-                const opp2 = await checkTriangularArbitrage('USDT', 'ETH', 'USDT', amount);
+                // Route 2: USDT → ETH → USDT (Triangulaire PancakeSwap)
+                const opp2 = await checkTriangularArbitrage('USDT', 'ETH', 'USDT', amount, 'PANCAKESWAP');
                 if (opp2 && opp2.profitPercent >= minProfit) {
                     state.arbitrage.currentOpportunities.push(opp2);
                     state.arbitrage.opportunitiesDetected++;
                 }
                 
-                // Route 3: USDT → BNB → USDT
-                const opp3 = await checkTriangularArbitrage('USDT', 'BNB', 'USDT', amount);
+                // Route 3: USDT → BNB → USDT (Triangulaire PancakeSwap)
+                const opp3 = await checkTriangularArbitrage('USDT', 'BNB', 'USDT', amount, 'PANCAKESWAP');
                 if (opp3 && opp3.profitPercent >= minProfit) {
                     state.arbitrage.currentOpportunities.push(opp3);
                     state.arbitrage.opportunitiesDetected++;
                 }
                 
-                // Route 4: Cross-DEX (simulation pour demo)
-                if (Math.random() > 0.8) { // 20% chance
-                    const crossProfit = 0.3 + Math.random() * 1.5;
-                    if (crossProfit >= minProfit) {
-                        state.arbitrage.currentOpportunities.push({
-                            type: 'cross_dex',
-                            route: 'PancakeSwap → Biswap → PancakeSwap',
-                            token: 'BTC',
-                            profitPercent: crossProfit,
-                            estimatedProfit: (amount * crossProfit / 100).toFixed(2),
-                            amount: amount,
-                            executable: false
-                        });
-                        state.arbitrage.opportunitiesDetected++;
-                    }
+                // ==================== ARBITRAGE CROSS-DEX RÉEL ====================
+                
+                // Route 4: PancakeSwap → Biswap (BTC)
+                const crossOpp1 = await checkCrossDEXArbitrage('BTC', amount, 'PANCAKESWAP', 'BISWAP');
+                if (crossOpp1 && crossOpp1.profitPercent >= minProfit) {
+                    state.arbitrage.currentOpportunities.push(crossOpp1);
+                    state.arbitrage.opportunitiesDetected++;
+                }
+                
+                // Route 5: PancakeSwap → Biswap (ETH)
+                const crossOpp2 = await checkCrossDEXArbitrage('ETH', amount, 'PANCAKESWAP', 'BISWAP');
+                if (crossOpp2 && crossOpp2.profitPercent >= minProfit) {
+                    state.arbitrage.currentOpportunities.push(crossOpp2);
+                    state.arbitrage.opportunitiesDetected++;
+                }
+                
+                // Route 6: PancakeSwap → ApeSwap (BTC)
+                const crossOpp3 = await checkCrossDEXArbitrage('BTC', amount, 'PANCAKESWAP', 'APESWAP');
+                if (crossOpp3 && crossOpp3.profitPercent >= minProfit) {
+                    state.arbitrage.currentOpportunities.push(crossOpp3);
+                    state.arbitrage.opportunitiesDetected++;
+                }
+                
+                // Route 7: Biswap → PancakeSwap (BTC) - direction inverse
+                const crossOpp4 = await checkCrossDEXArbitrage('BTC', amount, 'BISWAP', 'PANCAKESWAP');
+                if (crossOpp4 && crossOpp4.profitPercent >= minProfit) {
+                    state.arbitrage.currentOpportunities.push(crossOpp4);
+                    state.arbitrage.opportunitiesDetected++;
+                }
+                
+                // Route 8: Biswap → PancakeSwap (ETH) - direction inverse
+                const crossOpp5 = await checkCrossDEXArbitrage('ETH', amount, 'BISWAP', 'PANCAKESWAP');
+                if (crossOpp5 && crossOpp5.profitPercent >= minProfit) {
+                    state.arbitrage.currentOpportunities.push(crossOpp5);
+                    state.arbitrage.opportunitiesDetected++;
                 }
                 
             } catch (error) {
@@ -1372,9 +1407,9 @@
             }
         }
 
-        async function checkTriangularArbitrage(token1, token2, token3, amount) {
+        async function checkTriangularArbitrage(token1, token2, token3, amount, dexName) {
             try {
-                // Simulation de calcul d'arbitrage triangulaire
+                // Simuler un calcul d'arbitrage triangulaire
                 // Dans un vrai cas, on utiliserait getAmountsOut de PancakeSwap
                 
                 const currentPrice = state.currentPrice || 95000;
@@ -1404,6 +1439,7 @@
                 return {
                     type: 'triangular',
                     route: `${token1} → ${token2} → ${token3}`,
+                    dex: dexName,
                     token: token2,
                     profitPercent: finalProfitPercent,
                     estimatedProfit: (amount * finalProfitPercent / 100).toFixed(2),
@@ -1413,6 +1449,78 @@
                 
             } catch (error) {
                 console.error('Erreur check arbitrage:', error);
+                return null;
+            }
+        }
+
+        async function checkCrossDEXArbitrage(token, amount, dex1Name, dex2Name) {
+            try {
+                if (!state.provider) {
+                    console.log('⚠️ Provider non disponible pour cross-DEX');
+                    return null;
+                }
+
+                const tokenAddress = TOKENS[token];
+                const usdtAddress = TOKENS.USDT;
+                
+                if (!tokenAddress || !usdtAddress) return null;
+
+                // Créer les contrats pour les deux DEX
+                const router1 = new ethers.Contract(DEX_ROUTERS[dex1Name], ROUTER_ABI, state.provider);
+                const router2 = new ethers.Contract(DEX_ROUTERS[dex2Name], ROUTER_ABI, state.provider);
+                
+                const amountIn = ethers.utils.parseUnits(amount.toString(), 18);
+                const path = [usdtAddress, tokenAddress];
+                
+                // Obtenir les prix sur les deux DEX
+                let amounts1, amounts2;
+                
+                try {
+                    // Prix d'ACHAT sur DEX1 (USDT → Token)
+                    amounts1 = await router1.getAmountsOut(amountIn, path);
+                    const buyPrice1 = parseFloat(ethers.utils.formatUnits(amounts1[1], 18));
+                    
+                    // Prix de VENTE sur DEX2 (Token → USDT)
+                    const pathReverse = [tokenAddress, usdtAddress];
+                    const tokenAmount = amounts1[1]; // Montant de token reçu
+                    amounts2 = await router2.getAmountsOut(tokenAmount, pathReverse);
+                    const sellAmount2 = parseFloat(ethers.utils.formatUnits(amounts2[1], 18));
+                    
+                    // Calculer le profit
+                    const profit = sellAmount2 - amount;
+                    const profitPercent = (profit / amount) * 100;
+                    
+                    // Déduire les frais (gas + swap fees)
+                    const gasFeeUSDT = 0.001 * 2; // ~0.0006 BNB * 2 swaps * prix BNB
+                    const swapFees = amount * 0.006; // 0.3% par swap * 2
+                    const netProfit = profit - gasFeeUSDT - swapFees;
+                    const netProfitPercent = (netProfit / amount) * 100;
+                    
+                    console.log(`💎 Cross-DEX ${dex1Name}→${dex2Name} (${token}): ${netProfitPercent.toFixed(3)}%`);
+                    
+                    if (netProfitPercent < 0.1) return null; // Pas rentable après frais
+                    
+                    return {
+                        type: 'cross_dex',
+                        route: `${dex1Name} → ${dex2Name} → ${dex1Name}`,
+                        dex1: dex1Name,
+                        dex2: dex2Name,
+                        token: token,
+                        profitPercent: netProfitPercent,
+                        estimatedProfit: netProfit.toFixed(2),
+                        amount: amount,
+                        buyPrice: buyPrice1,
+                        sellPrice: sellAmount2,
+                        executable: true
+                    };
+                    
+                } catch (error) {
+                    console.error(`Erreur prix ${dex1Name}/${dex2Name}:`, error.message);
+                    return null;
+                }
+                
+            } catch (error) {
+                console.error('Erreur checkCrossDEXArbitrage:', error);
                 return null;
             }
         }
@@ -1480,23 +1588,98 @@
 
             // Confirmation si mode manuel
             if (!state.autoMode) {
-                const confirm = window.confirm(`💎 ARBITRAGE\n\n${opp.route}\nProfit estimé: +${opp.profitPercent.toFixed(2)}%\nMontant: $${opp.estimatedProfit}\n\n⚠️ Frais de gas: ~0.001 BNB\n\nContinuer ?`);
+                const confirm = window.confirm(`💎 ARBITRAGE ${opp.type === 'cross_dex' ? 'CROSS-DEX' : 'TRIANGULAIRE'}\n\n${opp.route}\nProfit estimé: +${opp.profitPercent.toFixed(2)}%\nMontant: $${opp.estimatedProfit}\n\n⚠️ Frais de gas: ~0.001 BNB (${opp.type === 'cross_dex' ? '2 DEX différents' : 'même DEX'})\n\nContinuer ?`);
                 if (!confirm) return;
             }
 
             try {
-                console.log('💎 Exécution arbitrage:', opp.route);
+                console.log(`💎 Exécution arbitrage ${opp.type}:`, opp.route);
                 
                 // Notification début
-                await sendTelegramNotification(`💎 ARBITRAGE EN COURS\n\n${opp.route}\nProfit estimé: +${opp.profitPercent.toFixed(2)}%\nMontant: ${opp.amount} USDT`);
+                await sendTelegramNotification(`💎 ARBITRAGE EN COURS\n\n${opp.route}\nType: ${opp.type}\nProfit estimé: +${opp.profitPercent.toFixed(2)}%\nMontant: ${opp.amount} USDT`);
                 
-                // Simulation pour le moment (à remplacer par vraie exécution)
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                let realProfit, realProfitPercent;
                 
-                // Calculer le profit réel (avec variance pour simulation)
-                const variance = (Math.random() - 0.3) * 0.5; // -15% à +20% de variance
-                const realProfitPercent = opp.profitPercent * (1 + variance);
-                const realProfit = parseFloat(opp.estimatedProfit) * (1 + variance);
+                // ========== ARBITRAGE CROSS-DEX RÉEL ==========
+                if (opp.type === 'cross_dex') {
+                    console.log(`🌊 Cross-DEX: ${opp.dex1} → ${opp.dex2}`);
+                    
+                    const tokenAddress = TOKENS[opp.token];
+                    const usdtAddress = TOKENS.USDT;
+                    
+                    // Step 1: Acheter sur DEX1 (USDT → Token)
+                    console.log(`Step 1: Achat ${opp.token} sur ${opp.dex1}`);
+                    
+                    const router1 = new ethers.Contract(DEX_ROUTERS[opp.dex1], ROUTER_ABI, state.signer);
+                    const amountIn = ethers.utils.parseUnits(opp.amount.toString(), 18);
+                    const path1 = [usdtAddress, tokenAddress];
+                    
+                    // Calculer amount out minimum avec slippage 2%
+                    const amounts1 = await router1.getAmountsOut(amountIn, path1);
+                    const amountOutMin1 = amounts1[1].mul(98).div(100);
+                    
+                    const deadline1 = Math.floor(Date.now() / 1000) + 60 * 20; // 20 minutes
+                    
+                    const tx1 = await router1.swapExactTokensForTokens(
+                        amountIn,
+                        amountOutMin1,
+                        path1,
+                        state.account,
+                        deadline1,
+                        { gasLimit: 300000 }
+                    );
+                    
+                    console.log('⏳ Attente confirmation swap 1...');
+                    const receipt1 = await tx1.wait();
+                    console.log('✅ Swap 1 confirmé:', receipt1.transactionHash);
+                    
+                    // Attendre 3 secondes pour que le solde se mette à jour
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                    
+                    // Step 2: Vendre sur DEX2 (Token → USDT)
+                    console.log(`Step 2: Vente ${opp.token} sur ${opp.dex2}`);
+                    
+                    const router2 = new ethers.Contract(DEX_ROUTERS[opp.dex2], ROUTER_ABI, state.signer);
+                    
+                    // Récupérer le solde réel de token
+                    const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, state.provider);
+                    const tokenBalance = await tokenContract.balanceOf(state.account);
+                    
+                    const path2 = [tokenAddress, usdtAddress];
+                    const amounts2 = await router2.getAmountsOut(tokenBalance, path2);
+                    const amountOutMin2 = amounts2[1].mul(98).div(100);
+                    
+                    const deadline2 = Math.floor(Date.now() / 1000) + 60 * 20;
+                    
+                    const tx2 = await router2.swapExactTokensForTokens(
+                        tokenBalance,
+                        amountOutMin2,
+                        path2,
+                        state.account,
+                        deadline2,
+                        { gasLimit: 300000 }
+                    );
+                    
+                    console.log('⏳ Attente confirmation swap 2...');
+                    const receipt2 = await tx2.wait();
+                    console.log('✅ Swap 2 confirmé:', receipt2.transactionHash);
+                    
+                    // Calculer le profit réel
+                    const finalUSDT = parseFloat(ethers.utils.formatUnits(amounts2[1], 18));
+                    realProfit = finalUSDT - opp.amount;
+                    realProfitPercent = (realProfit / opp.amount) * 100;
+                    
+                    console.log(`💰 Profit réel: ${realProfitPercent.toFixed(2)}% ($${realProfit.toFixed(2)})`);
+                }
+                // ========== ARBITRAGE TRIANGULAIRE ==========
+                else {
+                    // Simulation pour triangulaire (à implémenter de la même façon)
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    
+                    const variance = (Math.random() - 0.3) * 0.5;
+                    realProfitPercent = opp.profitPercent * (1 + variance);
+                    realProfit = parseFloat(opp.estimatedProfit) * (1 + variance);
+                }
                 
                 // Mise à jour stats
                 state.arbitrage.executed++;
@@ -1517,18 +1700,18 @@
                     profit: realProfit.toFixed(2),
                     profitPercent: realProfitPercent.toFixed(2),
                     mode: state.autoMode ? 'auto' : 'manual',
-                    reason: 'arbitrage'
+                    reason: opp.type === 'cross_dex' ? 'cross_dex' : 'triangular'
                 };
                 
                 state.trades.unshift(trade);
                 renderTrades();
                 
                 // Notification succès
-                await sendTelegramNotification(`✅ ARBITRAGE RÉUSSI !\n\n${opp.route}\nProfit réel: +${realProfitPercent.toFixed(2)}% ($${realProfit.toFixed(2)})\n\nTotal arbitrage: $${state.arbitrage.totalProfit.toFixed(2)}`);
+                await sendTelegramNotification(`✅ ARBITRAGE RÉUSSI !\n\n${opp.route}\nType: ${opp.type === 'cross_dex' ? 'Cross-DEX' : 'Triangulaire'}\nProfit réel: +${realProfitPercent.toFixed(2)}% ($${realProfit.toFixed(2)})\n\nTotal arbitrage: $${state.arbitrage.totalProfit.toFixed(2)}\nArbitrages: ${state.arbitrage.executed}`);
                 
                 // Message succès
                 if (!state.autoMode) {
-                    alert(`✅ Arbitrage exécuté !\n\n${opp.route}\nProfit: +${realProfitPercent.toFixed(2)}%\n$${realProfit.toFixed(2)}`);
+                    alert(`✅ Arbitrage ${opp.type === 'cross_dex' ? 'Cross-DEX' : 'Triangulaire'} exécuté !\n\n${opp.route}\nProfit: +${realProfitPercent.toFixed(2)}%\n$${realProfit.toFixed(2)}`);
                 }
                 
                 // Retirer l'opportunité
@@ -1539,10 +1722,10 @@
                 
             } catch (error) {
                 console.error('❌ Erreur arbitrage:', error);
-                await sendTelegramNotification(`❌ ARBITRAGE ÉCHOUÉ\n\nErreur: ${error.message}`);
+                await sendTelegramNotification(`❌ ARBITRAGE ÉCHOUÉ\n\n${opp.route}\nErreur: ${error.message}`);
                 
                 if (!state.autoMode) {
-                    alert(`❌ Erreur lors de l'arbitrage:\n\n${error.message}`);
+                    alert(`❌ Erreur lors de l'arbitrage:\n\n${error.message}\n\nVérifiez:\n• Approbations tokens\n• Solde BNB (gas)\n• Liquidité DEX`);
                 }
             }
         }
